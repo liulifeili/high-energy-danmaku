@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>弹幕高能峰值分析视图</title>
+    <!-- 引入 ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <!-- 引入 MathJax 用于渲染数学公式 -->
+    <script>
+        MathJax = {
+          tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+    <!-- 数据文件 -->
+    <script src="../data/processed/data.js"></script>
+    <style>
+        :root {
+            --primary-bg: #f5f7fa;
+            --panel-bg: #ffffff;
+            --border-color: #e4e7ed;
+            --text-main: #303133;
+            --text-sub: #909399;
+            --highlight: #00a1d6;
+            --peak-color: #f56c6c;
+        }
+        body, html {
+            margin: 0; padding: 0; height: 100%; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: var(--primary-bg); color: var(--text-main);
+        }
+        .container { display: flex; flex-direction: column; height: 100%; }
+        .header {
+            height: 60px; background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color);
+            display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
+        }
+        .header-title { font-weight: bold; font-size: 18px; display: flex; align-items: center; gap: 12px; }
+        .creator-tag {
+            font-size: 12px; padding: 2px 8px; background: #eef2f9; color: #555; 
+            border-radius: 12px; font-weight: normal; border: 1px solid #dcdfe6;
+        }
+        .main-content { display: flex; flex: 1; overflow: hidden; }
+        .sidebar {
+            width: 250px; background-color: var(--panel-bg); border-right: 1px solid var(--border-color);
+            padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;
+        }
+        .chart-area {
+            flex: 1; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; gap: 20px;
+        }
+        .section-title { font-size: 14px; color: var(--text-sub); margin-bottom: 10px; font-weight: bold; }
+        .btn-group { display: flex; flex-wrap: wrap; gap: 10px; }
+        .btn {
+            padding: 8px 12px; border: 1px solid var(--border-color); background: var(--panel-bg);
+            border-radius: 4px; cursor: pointer; transition: all 0.2s; font-size: 13px;
+        }
+        .btn:hover { border-color: var(--highlight); color: var(--highlight); }
+        .btn.active { background: var(--highlight); color: #fff; border-color: var(--highlight); }
+        
+        .btn.enhance-btn { border-color: #ff9800; color: #ff9800; font-weight: bold;}
+        .btn.enhance-btn.active { background: #ff9800; color: #fff; border-color: #ff9800;}
+
+        #chartContainer {
+            background: var(--panel-bg); border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05);
+            padding: 15px; height: 450px; flex-shrink: 0;
+        }
+        .peak-list {
+            background: var(--panel-bg); border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05);
+            padding: 15px; flex: 1; overflow-y: auto;
+        }
+        .peak-item {
+            display: flex; align-items: center; padding: 12px; border-bottom: 1px solid var(--border-color);
+            cursor: pointer; transition: background 0.2s;
+        }
+        .peak-item:hover { background-color: var(--primary-bg); }
+        .peak-rank {
+            width: 30px; height: 30px; border-radius: 50%; background: var(--peak-color); color: white;
+            display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 15px;
+        }
+        .peak-info { flex: 1; }
+        .peak-time { font-weight: bold; font-size: 15px; margin-bottom: 4px; }
+        .peak-stats { font-size: 13px; color: var(--text-sub); display: flex; gap: 15px; }
+        .empty-state { padding: 30px; text-align: center; color: var(--text-sub); }
+        
+        /* 弹窗样式 */
+        .info-btn {
+            background: #fdf6ec; border: 1px solid #faecd8; padding: 12px; border-radius: 6px;
+            font-size: 13px; cursor: pointer; color: #e6a23c; margin-top: auto; text-align: center;
+            font-weight: bold; transition: background 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .info-btn:hover { background: #fbf0e1; }
+        
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .modal-content {
+            background: #fff; width: 850px; max-height: 85vh; border-radius: 12px; padding: 35px;
+            overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.2); position: relative;
+        }
+        .close-btn {
+            position: absolute; top: 20px; right: 25px; font-size: 28px; cursor: pointer; color: #999;
+            transition: color 0.2s;
+        }
+        .close-btn:hover { color: #f56c6c; }
+        .modal-title { font-size: 22px; font-weight: bold; margin-bottom: 25px; color: #303133; border-bottom: 2px solid #f0f2f5; padding-bottom: 15px; }
+        .modal-body p { line-height: 1.7; color: #444; font-size: 14.5px; margin-bottom: 15px; }
+        .modal-body h4 { margin: 25px 0 12px 0; color: #303133; font-size: 16px; border-left: 4px solid #ff9800; padding-left: 10px;}
+        .modal-body ul { padding-left: 20px; color: #444; font-size: 14.5px; line-height: 1.7;}
+        .modal-body li { margin-bottom: 8px; }
+        .theory-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+        .theory-table th, .theory-table td { border: 1px solid #e4e7ed; padding: 12px; text-align: left; }
+        .theory-table th { background-color: #f5f7fa; color: #303133; }
+        .math-block { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; overflow-x: auto; margin: 15px 0;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-title">
+                弹幕高能峰值分析视图 <span style="font-size: 14px; font-weight: normal; color: #666;">(多尺度感知增强版)</span>
+                <span class="creator-tag">Created by Liulifeili</span>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="sidebar">
+                <div>
+                    <div class="section-title">选择剧集 / 视频</div>
+                    <div id="episodeList" class="btn-group"></div>
+                </div>
+                <div>
+                    <div class="section-title">选择时间粒度 (聚类大小)</div>
+                    <div id="granularityList" class="btn-group"></div>
+                </div>
+                
+                <!-- 答辩级别说明按钮 -->
+                <div class="info-btn" onclick="openModal()">
+                    📖 核心算法理论白皮书<br><span style="font-size: 11px; font-weight: normal; color: #e6a23c;">(包含底层数学逻辑推导)</span>
+                </div>
+            </div>
+            
+            <div class="chart-area">
+                <div id="chartContainer"></div>
+                <div class="section-title" style="margin-bottom: 0;">🏆 当前粒度下高能区间排行榜</div>
+                <div id="peakListContainer" class="peak-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 学术级理论弹窗 -->
+    <div class="modal-overlay" id="theoryModal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="close-btn" onclick="closeModal(event)">&times;</div>
+            <div class="modal-title">弹幕时域密度分析：多尺度感知增强理论（答辩级解析）</div>
+            <div class="modal-body">
+                <p>在传统的视频弹幕分析中，普遍存在<b>“水弹幕掩盖真实高潮”</b>和<b>“长短视频尺度不统一”</b>的痛点。本节将详细阐述本项目自研的【增强分析】模型是如何通过一系列数学算法，从海量噪声中精准提炼出视觉上极具冲击力的真实情绪爆点的。</p>
+                
+                <h4>第一阶段：等分理论与时域对齐 (Time-Domain Alignment)</h4>
+                <p><b>传统痛点</b>：若使用固定的 5s 或 10s 进行切片，一个 30 分钟的视频和一个 5 分钟的视频在时间轴上的数据点数量相差巨大，前端无法在统一的空间尺度下进行对比。</p>
+                <p><b>本方案</b>：提出“动态步长等分映射”。通过公式将任意时长的视频严格重采样为 100 个时间窗口：</p>
+                <div class="math-block">
+                    $$Step = \lceil \frac{Duration}{100} \rceil$$
+                </div>
+                <p><b>学术意义</b>：这实现了时间维度的归一化 (Normalization)。无论视频长短，X 轴始终代表 0% - 100% 的播放进度，为后续的数学形态学处理提供了标准化的计算基底。</p>
+
+                <h4>第二阶段：多尺度感知与微观爆发因子 (Multi-Scale Perception)</h4>
+                <p><b>传统痛点</b>：当我们在宏观上（例如每 20s 为一个大桶）统计弹幕时，“瞬间的激烈爆发”和“持续的平淡讨论”可能产生相同的总数。宏观切片会抹平微观的突变。</p>
+                <p><b>本方案</b>：在底层维持一条高分辨率（5秒/次）的微观数据流。对于任意一个宏观桶，提取其内部所有 5s 样本计算<b>爆发比率</b>：</p>
+                <div class="math-block">
+                    $$BurstFactor = \frac{Max_{micro}}{Average_{micro}}$$
+                </div>
+                <p>随后，我们将宏观总弹幕数乘以 $(BurstFactor)^{1.2}$ 进行组合赋分。这引入了<b>局部方差感知</b>，若弹幕在某 5 秒内瞬间井喷，该区间将被赋予极高的权重补偿。</p>
+
+                <h4>第三阶段：底噪剥离与 1:4:1 中心加权平滑</h4>
+                <ul>
+                    <li><b>底噪剥离</b>：寻找全片处理后的最小值 $Min$，将所有数据更新为 $X_{new} = \max(0, X - Min)$。这强制将“冷场片段”归零，确立绝对零点基线。</li>
+                    <li><b>1:4:1 平滑</b>：使用公式 $X_i = \frac{X_{i-1} + 4X_i + X_{i+1}}{6}$。相比传统的 1:2:1 “削峰”平滑，1:4:1 给予中心点极大权重，能在去除锯齿的同时，最大程度保留峰值的陡峭斜率。</li>
+                </ul>
+
+                <h4>第四阶段：1.8 次幂的高阶非线性拉伸</h4>
+                <p>这是让曲线从“平缓土丘”突变为“锐利尖峰”的核心灵魂。在线性展示中，3倍的数据落差视觉上毫无压迫感。我们引入指数级映射函数：</p>
+                <div class="math-block">
+                    $$Y = \left( \frac{X}{X_{max}} \right)^{1.8} \times X_{max}$$
+                </div>
+                <p><b>数学效应：马太效应（强者愈强，弱者愈弱）</b>。幂函数在 $[0,1]$ 区间内是一条下凹曲线：</p>
+                
+                <table class="theory-table">
+                    <tr><th>原始热度 (占最高峰比例)</th><th>经过 1.8 次幂运算后的高度</th><th>视觉压制效果</th></tr>
+                    <tr><td><b>20%</b> (一般弹幕区)</td><td>$0.2^{1.8} \approx$ <b>5.7%</b></td><td><span style="color:#f56c6c; font-weight:bold;">被极度向下压榨，几乎贴地</span></td></tr>
+                    <tr><td><b>50%</b> (中等热度区)</td><td>$0.5^{1.8} \approx$ <b>28.7%</b></td><td><span style="color:#e6a23c; font-weight:bold;">被大幅度压缩</span></td></tr>
+                    <tr><td><b>80%</b> (次级高潮区)</td><td>$0.8^{1.8} \approx$ <b>66.9%</b></td><td><span style="color:#67c23a; font-weight:bold;">保留合理的次峰高度</span></td></tr>
+                    <tr><td><b>100%</b> (绝对高能点)</td><td>$1.0^{1.8} =$ <b>100%</b></td><td><span style="color:#303133; font-weight:bold;">完美锚定，屹立不倒</span></td></tr>
+                </table>
+
+                <p><b>为什么是 1.8 次幂？</b> 1.0 次幂曲线臃肿；3.0 次幂惩罚过度（只剩一根针）。<b>1.8 次幂</b>是最优拟合参数，既能将 50% 以下的底噪死死“踩”在地上，又能让名场面像“避雷针”一样陡峭刺破屏幕，完美实现【高能锐化】。</p>
+
+                <div style="margin-top: 30px; font-size: 13px; color: #999; text-align: right; border-top: 1px dashed #e4e7ed; padding-top: 15px;">
+                    Algorithm & Architecture Designed by <b style="color: #303133;">Liulifeili</b>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock 测试数据更新
+        if (typeof APP_DATA === 'undefined') {
+            window.APP_DATA = {
+                "ep_test": {
+                    episode_id: "ep_test", video_duration_sec: 1400, total_danmaku: 5000,
+                    bucket_series: {
+                        "30s": Array.from({length: 47}, (_, i) => ({ start_sec: i*30, end_sec: (i+1)*30, mid_sec: i*30+15, count: Math.floor(Math.random()*150) })),
+                        "增强分析": Array.from({length: 100}, (_, i) => ({ start_sec: i*14, end_sec: (i+1)*14, mid_sec: i*14+7, count: Math.max(0, Math.floor(Math.random()*100) - 30) }))
+                    },
+                    peaks: {
+                        "30s": [],
+                        "增强分析": [{rank: 1, start_sec: 280, end_sec: 294, peak_count: 80, total_count: 80, relative_strength: 5.5}]
+                    }
+                }
+            };
+        }
+
+        const state = {
+            currentEpisode: Object.keys(window.APP_DATA)[0] || '',
+            currentGranularity: '增强分析',
+            myChart: null
+        };
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        // 弹窗控制逻辑
+        function openModal() { document.getElementById('theoryModal').style.display = 'flex'; }
+        function closeModal(e) { if(e) e.stopPropagation(); document.getElementById('theoryModal').style.display = 'none'; }
+
+        function initApp() {
+            state.myChart = echarts.init(document.getElementById('chartContainer'));
+            window.addEventListener('resize', () => state.myChart.resize());
+            renderSidebar();
+            updateView();
+        }
+
+        function renderSidebar() {
+            const epList = document.getElementById('episodeList');
+            epList.innerHTML = '';
+            Object.keys(window.APP_DATA).forEach(epId => {
+                const btn = document.createElement('div');
+                btn.className = `btn ${epId === state.currentEpisode ? 'active' : ''}`;
+                btn.innerText = epId;
+                btn.onclick = () => { state.currentEpisode = epId; renderSidebar(); updateView(); };
+                epList.appendChild(btn);
+            });
+
+            const currentData = window.APP_DATA[state.currentEpisode];
+            if (!currentData) return;
+            const granularities = Object.keys(currentData.bucket_series || {});
+            if (!granularities.includes(state.currentGranularity)) {
+                state.currentGranularity = granularities[0];
+            }
+
+            const granList = document.getElementById('granularityList');
+            granList.innerHTML = '';
+            granularities.forEach(g => {
+                const btn = document.createElement('div');
+                btn.className = `btn ${g === state.currentGranularity ? 'active' : ''}`;
+                
+                if (g === '增强分析') {
+                    btn.classList.add('enhance-btn');
+                    btn.innerHTML = '🔥 增强分析 (自研锐化)';
+                } else {
+                    btn.innerText = g;
+                }
+                
+                btn.onclick = () => { state.currentGranularity = g; renderSidebar(); updateView(); };
+                granList.appendChild(btn);
+            });
+        }
+
+        function updateView() {
+            renderChart();
+            renderPeaks();
+        }
+
+        function renderChart() {
+            const epData = window.APP_DATA[state.currentEpisode];
+            if (!epData) return;
+            const seriesData = epData.bucket_series[state.currentGranularity];
+            if (!seriesData) return;
+
+            const xAxisData = seriesData.map(b => formatTime(b.mid_sec));
+            const yAxisData = seriesData.map(b => b.count);
+
+            const isEnhanced = state.currentGranularity === '增强分析';
+            const mainColor = isEnhanced ? '#ff9800' : '#00a1d6';
+            const rgbColor = isEnhanced ? '255, 152, 0' : '0, 161, 214';
+
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function(params) {
+                        const idx = params[0].dataIndex;
+                        const bucket = seriesData[idx];
+                        const bucketLen = isEnhanced ? `(分片时长: ${(bucket.end_sec - bucket.start_sec).toFixed(1)}s)` : '';
+                        return `
+                            <b>区间: ${formatTime(bucket.start_sec)} - ${formatTime(bucket.end_sec)}</b><br/>
+                            弹幕量/高能值: <b>${bucket.count}</b><br/>
+                            ${bucketLen}
+                        `;
+                    }
+                },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { 
+                    type: 'category', boundaryGap: false, data: xAxisData,
+                    axisLabel: { color: 'var(--text-sub)' }
+                },
+                yAxis: { type: 'value', axisLabel: { color: 'var(--text-sub)' } },
+                series: [{
+                    data: yAxisData,
+                    type: 'line',
+                    smooth: true,
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: `rgba(${rgbColor}, 0.5)` },
+                            { offset: 1, color: `rgba(${rgbColor}, 0.05)` }
+                        ])
+                    },
+                    itemStyle: { color: mainColor },
+                    lineStyle: { width: 3 }
+                }]
+            };
+            state.myChart.setOption(option, true);
+        }
+
+        function renderPeaks() {
+            const listContainer = document.getElementById('peakListContainer');
+            listContainer.innerHTML = '';
+            const epData = window.APP_DATA[state.currentEpisode];
+            if (!epData) return;
+            const peaks = epData.peaks[state.currentGranularity] || [];
+            
+            if (peaks.length === 0) {
+                listContainer.innerHTML = '<div class="empty-state">当前粒度未识别到明显高潮区间</div>';
+                return;
+            }
+
+            peaks.forEach(peak => {
+                const div = document.createElement('div');
+                div.className = 'peak-item';
+                div.dataset.rank = peak.rank;
+                
+                div.innerHTML = `
+                    <div class="peak-rank">${peak.rank}</div>
+                    <div class="peak-info">
+                        <div class="peak-time">${formatTime(peak.start_sec)} - ${formatTime(peak.end_sec)}</div>
+                        <div class="peak-stats">
+                            <span>极值点: <b>${peak.peak_count}</b></span>
+                            <span>区间积累: ${peak.total_count}</span>
+                            <span style="color:var(--peak-color)">强度: ${peak.relative_strength}x</span>
+                        </div>
+                    </div>
+                `;
+                
+                div.onclick = () => highlightChartArea(peak.start_sec, peak.end_sec);
+                listContainer.appendChild(div);
+            });
+        }
+
+        function highlightChartArea(start, end) {
+            if (!state.myChart) return;
+            const epData = window.APP_DATA[state.currentEpisode];
+            const seriesData = epData.bucket_series[state.currentGranularity];
+            const startIndex = seriesData.findIndex(b => b.start_sec >= start) || 0;
+            let endIndex = seriesData.findIndex(b => b.end_sec >= end);
+            if (endIndex === -1) endIndex = seriesData.length - 1;
+
+            const xAxisData = state.myChart.getOption().xAxis[0].data;
+            const areaColor = state.currentGranularity === '增强分析' ? 'rgba(255, 152, 0, 0.2)' : 'rgba(0, 161, 214, 0.2)';
+
+            state.myChart.setOption({
+                series: [{
+                    markArea: {
+                        itemStyle: { color: areaColor },
+                        data: [[
+                            { xAxis: xAxisData[startIndex] || xAxisData[0] },
+                            { xAxis: xAxisData[endIndex] || xAxisData[xAxisData.length-1] }
+                        ]]
+                    }
+                }]
+            });
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
